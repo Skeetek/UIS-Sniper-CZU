@@ -18,7 +18,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 
+# --- KONFIGURACE ---
 UIS_LOGIN_URL = "https://is.czu.cz/auth/"
+OUTLOOK_URL = "https://outlook.office.com/mail/"
 COFFEE_URL = "https://buymeacoffee.com/colorvant"
 
 def get_config_path():
@@ -30,6 +32,7 @@ def get_config_path():
 
 CONFIG_FILE = get_config_path()
 
+# --- BARVY (DARK MODE) ---
 COLOR_BG = "#1e1e1e"
 COLOR_FRAME = "#2b2b2b"
 COLOR_TEXT = "#ffffff"
@@ -38,13 +41,14 @@ COLOR_BTN_START = "#006400"
 COLOR_BTN_STOP = "#8b0000"  
 COLOR_BTN_SCAN = "#005f9e"  
 COLOR_ACCENT = "#FFD700"    
-COLOR_INFO = "#4FC3F7"      
+COLOR_INFO = "#4FC3F7"
+COLOR_OUTLOOK = "#0078D4" # Modrá pro Outlook režim
 
 class SniperApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("UIS Sniper - ČZU Dark Edition")
-        self.root.geometry("700x950")
+        self.root.title("UIS Sniper - ČZU")
+        self.root.geometry("700x980")
         self.root.resizable(True, True)
         self.root.configure(bg=COLOR_BG)
         
@@ -57,6 +61,7 @@ class SniperApp:
         self.saved_data = self.load_config()
         self.scanned_data = self.saved_data.get("scanned_data", {}) 
         self.all_subjects = self.saved_data.get("all_subjects", [])
+        self.outlook_mode = tk.BooleanVar(value=False)
 
         style = ttk.Style()
         style.theme_use('clam') 
@@ -69,6 +74,9 @@ class SniperApp:
         style.map("TButton", background=[('active', '#555')])
         style.configure("TCombobox", fieldbackground=COLOR_ENTRY_BG, background="#444", foreground=COLOR_TEXT, arrowcolor="white")
         style.map("TCombobox", fieldbackground=[('readonly', COLOR_ENTRY_BG)], selectbackground=[('readonly', '#555')])
+        
+        # Checkbox styl
+        style.configure("TCheckbutton", background=COLOR_BG, foreground=COLOR_TEXT, font=("Segoe UI", 10))
 
         main_canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0)
         scrollbar = ttk.Scrollbar(root, orient="vertical", command=main_canvas.yview)
@@ -188,8 +196,17 @@ class SniperApp:
         self.entry_blacklist.pack(fill=tk.X, pady=2)
         self.entry_blacklist.insert(0, self.saved_data.get("blacklist", ""))
 
-        btn_frame = ttk.Frame(content_frame)
-        btn_frame.pack(fill=tk.X, pady=10)
+        # 6. OVLÁDÁNÍ + OUTLOOK MOŽNOST
+        lbl_frame_control = ttk.LabelFrame(content_frame, text="6. Ovládání", padding="10")
+        lbl_frame_control.pack(fill=tk.X, pady=5)
+
+        # Checkbox pro Outlook mód
+        self.chk_outlook = ttk.Checkbutton(lbl_frame_control, text="📧 Aktivovat Outlook Watcher (Čekání na email)", variable=self.outlook_mode, onvalue=True, offvalue=False)
+        self.chk_outlook.pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(lbl_frame_control, text="Pozor: E-maily mají zpoždění. Vhodné jen pro nové termíny.", font=("Segoe UI", 8), foreground="gray").pack(anchor=tk.W, pady=(0, 10))
+
+        btn_frame = ttk.Frame(lbl_frame_control)
+        btn_frame.pack(fill=tk.X)
 
         self.btn_start = tk.Button(btn_frame, text="🚀 SPUSTIT SNIPER", bg=COLOR_BTN_START, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_sniper)
         self.btn_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
@@ -206,6 +223,7 @@ class SniperApp:
         btn_coffee = tk.Button(content_frame, text="☕ Líbi se ti aplikace? Podpoř autora na Buy Me a Coffee", bg=COLOR_ACCENT, fg="black", font=("Segoe UI", 10, "bold"), command=self.open_coffee)
         btn_coffee.pack(fill=tk.X, pady=10)
 
+    # --- PERSISTENCE ---
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
@@ -438,12 +456,18 @@ class SniperApp:
         self.is_running = True
         self.btn_start.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
-        self.btn_scan.config(state=tk.DISABLED) 
+        self.btn_scan.config(state=tk.DISABLED)
+        self.chk_outlook.config(state=tk.DISABLED) # Zablokovat změnu režimu
         
-        self.log("--- SPUŠTĚNÍ SNIPERU ---")
-        self.log("ℹ️ Program pracuje. Nezasahuj do okna prohlížeče.")
+        use_outlook = self.outlook_mode.get()
+        if use_outlook:
+             self.log("--- SPUŠTĚNÍ V OUTLOOK REŽIMU 📧 ---")
+             self.log("ℹ️ Přihlaste se v otevřeném okně do Outlooku.")
+        else:
+             self.log("--- SPUŠTĚNÍ V UIS REŽIMU 🚀 ---")
+             self.log("ℹ️ Program pracuje. Nezasahuj do okna prohlížeče.")
         
-        self.thread = threading.Thread(target=self.run_process, args=(username, password, targets))
+        self.thread = threading.Thread(target=self.run_process, args=(username, password, targets, use_outlook))
         self.thread.daemon = True
         self.thread.start()
 
@@ -457,6 +481,7 @@ class SniperApp:
         self.btn_start.config(state=tk.NORMAL)
         self.btn_stop.config(state=tk.DISABLED)
         self.btn_scan.config(state=tk.NORMAL)
+        self.chk_outlook.config(state=tk.NORMAL)
         self.log("--- ZASTAVENO ---")
 
     def init_driver(self):
@@ -605,13 +630,72 @@ class SniperApp:
             self.log(f"🔴 Chyba při loginu: {e}")
             return False
 
-    def run_process(self, username, password, targets):
+    def check_outlook_for_email(self, driver, targets):
+        """Kontroluje Outlook na přítomnost e-mailů o vypsání termínu."""
+        try:
+            # Hledáme elementy, které reprezentují nepřečtené zprávy v seznamu
+            # Podle HTML je to role="option" a aria-label začíná "Unread"
+            # XPath: Najdi element, který má v aria-label slova "Unread", "Vypsání termínu" a jméno předmětu
+            
+            for t in targets:
+                subj = t["subject"]
+                
+                # XPath pro nalezení konkrétního emailu
+                # Hledáme string "Vypsání termínu" a jméno předmětu v aria-label
+                xpath = f"//div[@role='option' and contains(@aria-label, 'Unread') and contains(@aria-label, 'Vypsání termínu') and contains(@aria-label, '{subj}')]"
+                
+                emails = driver.find_elements(By.XPATH, xpath)
+                
+                if emails:
+                    self.log(f"📧 Nalezen nový e-mail pro: {subj}!")
+                    return True
+            
+            return False
+            
+        except Exception:
+            return False
+
+    def run_process(self, username, password, targets, use_outlook=False):
         driver = self.init_driver()
         if not driver:
             self.root.after(0, self.reset_ui)
             return
 
         try:
+            if use_outlook:
+                # --- OUTLOOK MODE ---
+                self.log("🔵 Otevírám Outlook...")
+                driver.get(OUTLOOK_URL)
+                self.log("⏳ Čekám na ruční přihlášení do Outlooku...")
+                
+                # Čekáme, dokud se nenačte inbox (hledáme např. složku Doručená pošta/Inbox)
+                # Nebo prostě čekáme, až user potvrdí MFA a dostane se dovnitř
+                # Jednoduchý check: čekáme na element role="tree" (levé menu)
+                try:
+                    WebDriverWait(driver, 300).until(EC.presence_of_element_located((By.XPATH, "//div[@role='tree']")))
+                    self.log("✅ Outlook načten! Sleduji příchozí poštu...")
+                except TimeoutException:
+                    self.log("❌ Nepodařilo se detekovat přihlášení do Outlooku včas.")
+                    return
+
+                while self.is_running:
+                    # Kontrola e-mailů
+                    if self.check_outlook_for_email(driver, targets):
+                        self.log("🚀 DETEKOVÁN NOVÝ TERMÍN! Přepínám na UIS...")
+                        # Přepnutí na UIS a spuštění standardního sniper procesu
+                        # Ukončíme tento cyklus a přejdeme do bloku pod ním (login do UIS)
+                        break 
+                    
+                    time.sleep(10) # Kontrola každých 10s
+                    if self.is_running:
+                        # Občasný refresh, aby se načetly nové maily (pokud Outlook nepoužívá websocket live update spolehlivě)
+                        # Ale Outlook Web je SPA, takže by se měl aktualizovat sám. Pro jistotu refresh každých 5 min?
+                        # Zatím nechám bez refresh, jen kontrola DOMu.
+                        pass
+                
+                if not self.is_running: return
+
+            # --- STANDARDNÍ UIS SNIPER LOGIKA ---
             if not self.login_process(driver, username, password):
                 driver.quit()
                 self.root.after(0, self.reset_ui)
