@@ -26,10 +26,10 @@ COFFEE_URL = "https://buymeacoffee.com/colorvant"
 def get_config_path():
     """Vrátí cestu ke konfiguračnímu souboru vedle spustitelného souboru."""
     if getattr(sys, 'frozen', False):
-
+        # Pokud běží jako .exe (PyInstaller)
         application_path = os.path.dirname(sys.executable)
     else:
-
+        # Pokud běží jako .py skript
         application_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(application_path, "uis_config.json")
 
@@ -43,7 +43,7 @@ COLOR_ENTRY_BG = "#3c3c3c"
 COLOR_BTN_START = "#006400" 
 COLOR_BTN_STOP = "#8b0000"  
 COLOR_BTN_SCAN = "#005f9e"
-COLOR_BTN_DOG = "#A0522D" 
+COLOR_BTN_DOG = "#A0522D"
 COLOR_ACCENT = "#FFD700"    
 COLOR_INFO = "#4FC3F7"
 COLOR_OUTLOOK = "#0078D4" 
@@ -211,6 +211,7 @@ class SniperApp:
         self.btn_start = tk.Button(btn_frame, text="🚀 SPUSTIT SNIPER", bg=COLOR_BTN_START, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_sniper)
         self.btn_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
+        # Tlačítko pro Hlídacího psa
         self.btn_dog = tk.Button(btn_frame, text="🐶 NASTAVIT HLÍDACÍHO PSA", bg=COLOR_BTN_DOG, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_dog_mode)
         self.btn_dog.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
@@ -861,48 +862,40 @@ class SniperApp:
                 if date: xpath += f"[contains(., '{date}')]"
                 if filtr: xpath += f"[contains(., '{filtr}')]"
                 
-                rows = driver.find_elements(By.XPATH, xpath)
-                
-                if rows:
-                    found_dog = False
+                while self.is_running:
+                    found_dog_action = False
+                    
+                    rows = driver.find_elements(By.XPATH, xpath)
+                    
                     for row in rows:
                         row_text = row.text
                         
-                        # Blacklist check
                         if any(b in row_text for b in blacklist):
-                            self.log(f"   🚫 Ignoruji (blacklist): {row_text[:30]}...")
                             continue
 
                         try:
-                            # XPath pro psa: odkaz, který obsahuje ikonu glyph1561 NEBO má data-sysid="terminy-pes"
                             dog_xpath = ".//a[.//span[@data-sysid='terminy-pes'] or .//use[contains(@href, 'glyph1561')]]"
                             dog_btn = row.find_element(By.XPATH, dog_xpath)
                             
                             self.log(f"   🐶 Našel jsem psa! Klikám...")
                             driver.execute_script("arguments[0].click();", dog_btn)
                             
-                            # Po kliknutí se načte stránka s potvrzením/info o psovi
                             time.sleep(2)
                             
-                            # Vrátíme se zpět
                             self.log("   🔙 Vracím se na seznam...")
                             driver.back()
                             
-                            # Po návratu musíme stránku obnovit/počkat na tabulku, jinak jsou elementy 'stale'
                             WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
                             
-                            found_dog = True
+                            found_dog_action = True
                             self.log(f"   ✅ Pes nastaven pro: {subj}")
-                            break # Jdeme na další předmět v seznamu targets
+                            break 
                             
                         except:
-                            # Pes v tomto řádku není (možná už je nastavený nebo je to jiný typ termínu)
                             pass
                     
-                    if not found_dog:
-                         self.log(f"   ℹ️ U tohoto předmětu jsem nenašel volného psa (nebo už je nastaven).")
-                else:
-                    self.log(f"   ❌ Termín v tabulce nenalezen.")
+                    if not found_dog_action:
+                         break
 
             self.log("🏁 Hotovo. Hlídací psi nastaveni (kde to šlo).")
             messagebox.showinfo("Hotovo", "Proces nastavování psů dokončen.")
