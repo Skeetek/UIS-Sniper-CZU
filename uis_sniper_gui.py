@@ -24,9 +24,12 @@ OUTLOOK_URL = "https://outlook.office.com/mail/"
 COFFEE_URL = "https://buymeacoffee.com/colorvant"
 
 def get_config_path():
+    """Vrátí cestu ke konfiguračnímu souboru vedle spustitelného souboru."""
     if getattr(sys, 'frozen', False):
+
         application_path = os.path.dirname(sys.executable)
     else:
+
         application_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(application_path, "uis_config.json")
 
@@ -39,10 +42,11 @@ COLOR_TEXT = "#ffffff"
 COLOR_ENTRY_BG = "#3c3c3c"
 COLOR_BTN_START = "#006400" 
 COLOR_BTN_STOP = "#8b0000"  
-COLOR_BTN_SCAN = "#005f9e"  
+COLOR_BTN_SCAN = "#005f9e"
+COLOR_BTN_DOG = "#A0522D" 
 COLOR_ACCENT = "#FFD700"    
 COLOR_INFO = "#4FC3F7"
-COLOR_OUTLOOK = "#0078D4" # Modrá pro Outlook režim
+COLOR_OUTLOOK = "#0078D4" 
 
 class SniperApp:
     def __init__(self, root):
@@ -74,8 +78,6 @@ class SniperApp:
         style.map("TButton", background=[('active', '#555')])
         style.configure("TCombobox", fieldbackground=COLOR_ENTRY_BG, background="#444", foreground=COLOR_TEXT, arrowcolor="white")
         style.map("TCombobox", fieldbackground=[('readonly', COLOR_ENTRY_BG)], selectbackground=[('readonly', '#555')])
-        
-        # Checkbox styl
         style.configure("TCheckbutton", background=COLOR_BG, foreground=COLOR_TEXT, font=("Segoe UI", 10))
 
         main_canvas = tk.Canvas(root, bg=COLOR_BG, highlightthickness=0)
@@ -196,11 +198,9 @@ class SniperApp:
         self.entry_blacklist.pack(fill=tk.X, pady=2)
         self.entry_blacklist.insert(0, self.saved_data.get("blacklist", ""))
 
-        # 6. OVLÁDÁNÍ + OUTLOOK MOŽNOST
         lbl_frame_control = ttk.LabelFrame(content_frame, text="6. Ovládání", padding="10")
         lbl_frame_control.pack(fill=tk.X, pady=5)
 
-        # Checkbox pro Outlook mód
         self.chk_outlook = ttk.Checkbutton(lbl_frame_control, text="📧 Aktivovat Outlook Watcher (Čekání na email)", variable=self.outlook_mode, onvalue=True, offvalue=False)
         self.chk_outlook.pack(anchor=tk.W, pady=(0, 5))
         ttk.Label(lbl_frame_control, text="Pozor: E-maily mají zpoždění. Vhodné jen pro nové termíny.", font=("Segoe UI", 8), foreground="gray").pack(anchor=tk.W, pady=(0, 10))
@@ -210,6 +210,9 @@ class SniperApp:
 
         self.btn_start = tk.Button(btn_frame, text="🚀 SPUSTIT SNIPER", bg=COLOR_BTN_START, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_sniper)
         self.btn_start.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        self.btn_dog = tk.Button(btn_frame, text="🐶 NASTAVIT HLÍDACÍHO PSA", bg=COLOR_BTN_DOG, fg="white", font=("Segoe UI", 12, "bold"), command=self.start_dog_mode)
+        self.btn_dog.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
 
         self.btn_stop = tk.Button(btn_frame, text="🛑 ZASTAVIT", bg=COLOR_BTN_STOP, fg="white", font=("Segoe UI", 12, "bold"), command=self.stop_sniper, state=tk.DISABLED)
         self.btn_stop.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
@@ -455,9 +458,10 @@ class SniperApp:
         self.save_config()
         self.is_running = True
         self.btn_start.config(state=tk.DISABLED)
+        self.btn_dog.config(state=tk.DISABLED)
         self.btn_stop.config(state=tk.NORMAL)
         self.btn_scan.config(state=tk.DISABLED)
-        self.chk_outlook.config(state=tk.DISABLED) # Zablokovat změnu režimu
+        self.chk_outlook.config(state=tk.DISABLED) 
         
         use_outlook = self.outlook_mode.get()
         if use_outlook:
@@ -471,6 +475,37 @@ class SniperApp:
         self.thread.daemon = True
         self.thread.start()
 
+    def start_dog_mode(self):
+        """Spustí režim pro nastavení hlídacího psa."""
+        if self.is_running: return
+        
+        username = self.entry_user.get().strip()
+        password = self.entry_pass.get().strip()
+        targets = self.get_targets()
+
+        if not username or not password:
+            messagebox.showerror("Chyba", "Vyplň přihlašovací údaje!")
+            return
+        
+        if not targets:
+            messagebox.showerror("Chyba", "Seznam předmětů je prázdný!")
+            return
+
+        self.save_config()
+        self.is_running = True
+        self.btn_start.config(state=tk.DISABLED)
+        self.btn_dog.config(state=tk.DISABLED)
+        self.btn_stop.config(state=tk.NORMAL)
+        self.btn_scan.config(state=tk.DISABLED)
+        self.chk_outlook.config(state=tk.DISABLED) 
+        
+        self.log("--- SPUŠTĚNÍ REŽIMU HLÍDACÍ PES 🐶 ---")
+        self.log("ℹ️ Program projde termíny a nastaví psa.")
+        
+        self.thread = threading.Thread(target=self.run_dog_process, args=(username, password, targets))
+        self.thread.daemon = True
+        self.thread.start()
+
     def stop_sniper(self):
         if not self.is_running: return
         self.is_running = False
@@ -479,6 +514,7 @@ class SniperApp:
     def reset_ui(self):
         self.is_running = False
         self.btn_start.config(state=tk.NORMAL)
+        self.btn_dog.config(state=tk.NORMAL)
         self.btn_stop.config(state=tk.DISABLED)
         self.btn_scan.config(state=tk.NORMAL)
         self.chk_outlook.config(state=tk.NORMAL)
@@ -631,18 +667,11 @@ class SniperApp:
             return False
 
     def check_outlook_for_email(self, driver, targets):
-        """Kontroluje Outlook na přítomnost e-mailů o vypsání termínu."""
         try:
-            # Hledáme elementy, které reprezentují nepřečtené zprávy v seznamu
-            # Podle HTML je to role="option" a aria-label začíná "Unread"
-            # XPath: Najdi element, který má v aria-label slova "Unread", "Vypsání termínu" a jméno předmětu
-            
             for t in targets:
                 subj = t["subject"]
                 
-                # XPath pro nalezení konkrétního emailu
-                # Hledáme string "Vypsání termínu" a jméno předmětu v aria-label
-                xpath = f"//div[@role='option' and contains(@aria-label, 'Unread') and contains(@aria-label, 'Vypsání termínu') and contains(@aria-label, '{subj}')]"
+                xpath = f"//div[@role='option' and contains(@aria-label, 'Unread') and (contains(@aria-label, 'Vypsání termínu') or contains(@aria-label, 'Uvolnění místa na termínu')) and contains(@aria-label, '{subj}')]"
                 
                 emails = driver.find_elements(By.XPATH, xpath)
                 
@@ -663,14 +692,10 @@ class SniperApp:
 
         try:
             if use_outlook:
-                # --- OUTLOOK MODE ---
                 self.log("🔵 Otevírám Outlook...")
                 driver.get(OUTLOOK_URL)
                 self.log("⏳ Čekám na ruční přihlášení do Outlooku...")
                 
-                # Čekáme, dokud se nenačte inbox (hledáme např. složku Doručená pošta/Inbox)
-                # Nebo prostě čekáme, až user potvrdí MFA a dostane se dovnitř
-                # Jednoduchý check: čekáme na element role="tree" (levé menu)
                 try:
                     WebDriverWait(driver, 300).until(EC.presence_of_element_located((By.XPATH, "//div[@role='tree']")))
                     self.log("✅ Outlook načten! Sleduji příchozí poštu...")
@@ -679,23 +704,16 @@ class SniperApp:
                     return
 
                 while self.is_running:
-                    # Kontrola e-mailů
                     if self.check_outlook_for_email(driver, targets):
                         self.log("🚀 DETEKOVÁN NOVÝ TERMÍN! Přepínám na UIS...")
-                        # Přepnutí na UIS a spuštění standardního sniper procesu
-                        # Ukončíme tento cyklus a přejdeme do bloku pod ním (login do UIS)
                         break 
                     
-                    time.sleep(10) # Kontrola každých 10s
+                    time.sleep(10)
                     if self.is_running:
-                        # Občasný refresh, aby se načetly nové maily (pokud Outlook nepoužívá websocket live update spolehlivě)
-                        # Ale Outlook Web je SPA, takže by se měl aktualizovat sám. Pro jistotu refresh každých 5 min?
-                        # Zatím nechám bez refresh, jen kontrola DOMu.
                         pass
                 
                 if not self.is_running: return
 
-            # --- STANDARDNÍ UIS SNIPER LOGIKA ---
             if not self.login_process(driver, username, password):
                 driver.quit()
                 self.root.after(0, self.reset_ui)
@@ -799,6 +817,99 @@ class SniperApp:
 
         except Exception as e:
             self.log(f"🔴 KRITICKÁ CHYBA: {e}")
+        finally:
+            if driver: driver.quit()
+            self.root.after(0, self.reset_ui)
+
+    def run_dog_process(self, username, password, targets):
+        driver = self.init_driver()
+        if not driver:
+            self.root.after(0, self.reset_ui)
+            return
+
+        try:
+            if not self.login_process(driver, username, password):
+                driver.quit()
+                self.root.after(0, self.reset_ui)
+                return
+
+            self.navigate_to_exams(driver)
+            
+            blacklist_raw = self.entry_blacklist.get().strip()
+            blacklist = [b.strip() for b in blacklist_raw.split(";") if b.strip()]
+
+            self.log("🐶 Zahajuji nastavování hlídacích psů...")
+            
+            try:
+                WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
+            except:
+                self.log("⚠️ Tabulka termínů nenalezena.")
+                return
+
+            current_targets = self.get_targets()
+            
+            for t in current_targets:
+                if not self.is_running: break
+                
+                subj = t["subject"]
+                date = t["date"]
+                filtr = t["filter"]
+                
+                self.log(f"🔍 Hledám termín pro psa: {subj} ({date})")
+                
+                xpath = f"//table[@id='table_2']//tr[contains(., '{subj}')]"
+                if date: xpath += f"[contains(., '{date}')]"
+                if filtr: xpath += f"[contains(., '{filtr}')]"
+                
+                rows = driver.find_elements(By.XPATH, xpath)
+                
+                if rows:
+                    found_dog = False
+                    for row in rows:
+                        row_text = row.text
+                        
+                        # Blacklist check
+                        if any(b in row_text for b in blacklist):
+                            self.log(f"   🚫 Ignoruji (blacklist): {row_text[:30]}...")
+                            continue
+
+                        try:
+                            # XPath pro psa: odkaz, který obsahuje ikonu glyph1561 NEBO má data-sysid="terminy-pes"
+                            dog_xpath = ".//a[.//span[@data-sysid='terminy-pes'] or .//use[contains(@href, 'glyph1561')]]"
+                            dog_btn = row.find_element(By.XPATH, dog_xpath)
+                            
+                            self.log(f"   🐶 Našel jsem psa! Klikám...")
+                            driver.execute_script("arguments[0].click();", dog_btn)
+                            
+                            # Po kliknutí se načte stránka s potvrzením/info o psovi
+                            time.sleep(2)
+                            
+                            # Vrátíme se zpět
+                            self.log("   🔙 Vracím se na seznam...")
+                            driver.back()
+                            
+                            # Po návratu musíme stránku obnovit/počkat na tabulku, jinak jsou elementy 'stale'
+                            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "table_2")))
+                            
+                            found_dog = True
+                            self.log(f"   ✅ Pes nastaven pro: {subj}")
+                            break # Jdeme na další předmět v seznamu targets
+                            
+                        except:
+                            # Pes v tomto řádku není (možná už je nastavený nebo je to jiný typ termínu)
+                            pass
+                    
+                    if not found_dog:
+                         self.log(f"   ℹ️ U tohoto předmětu jsem nenašel volného psa (nebo už je nastaven).")
+                else:
+                    self.log(f"   ❌ Termín v tabulce nenalezen.")
+
+            self.log("🏁 Hotovo. Hlídací psi nastaveni (kde to šlo).")
+            messagebox.showinfo("Hotovo", "Proces nastavování psů dokončen.")
+            self.is_running = False
+
+        except Exception as e:
+            self.log(f"🔴 CHYBA PSA: {e}")
         finally:
             if driver: driver.quit()
             self.root.after(0, self.reset_ui)
